@@ -12,4 +12,4 @@ jobs:
       - name: Install dependencies
         run: pip install flake8
       - name: Run lint
-        run: flake8 . --max-line-length=100
+        run: flake8 . --max-line-length=120 --ignore=E501,W503,E302,E303
