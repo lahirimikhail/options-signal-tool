@@ -1,3 +1,4 @@
+import os
 import requests
 import numpy as np
 from scipy.stats import norm
@@ -6,7 +7,7 @@ from datetime import datetime, timedelta
 import warnings
 warnings.filterwarnings('ignore')
 
-API_KEY = "jX67VzkReHUSLGtTyg950ZROCzTB88A4"  # Replace with your Polygon.io API key
+API_KEY = os.environ.get("POLYGON_API_KEY", "your-api-key-here")
 
 
 def black_scholes(S, K, T, r, sigma, option_type='call'):
@@ -28,8 +29,14 @@ def greeks(S, K, T, r, sigma, option_type='call'):
     delta = norm.cdf(d1) if option_type == 'call' else norm.cdf(d1) - 1
     gamma = norm.pdf(d1) / (S * sigma * np.sqrt(T))
     vega = S * norm.pdf(d1) * np.sqrt(T) / 100
-    theta_call = (-(S * norm.pdf(d1) * sigma) / (2 * np.sqrt(T)) - r * K * np.exp(-r * T) * norm.cdf(d2)) / 365
-    theta_put = (-(S * norm.pdf(d1) * sigma) / (2 * np.sqrt(T)) + r * K * np.exp(-r * T) * norm.cdf(-d2)) / 365
+    theta_call = (
+        -(S * norm.pdf(d1) * sigma) / (2 * np.sqrt(T))
+        - r * K * np.exp(-r * T) * norm.cdf(d2)
+    ) / 365
+    theta_put = (
+        -(S * norm.pdf(d1) * sigma) / (2 * np.sqrt(T))
+        + r * K * np.exp(-r * T) * norm.cdf(-d2)
+    ) / 365
     theta = theta_call if option_type == 'call' else theta_put
     return {'delta': round(delta, 4), 'gamma': round(gamma, 4),
             'vega': round(vega, 4), 'theta': round(theta, 4)}
@@ -40,14 +47,17 @@ def implied_vol(market_price, S, K, T, r, option_type='call'):
         return round(brentq(
             lambda sigma: black_scholes(S, K, T, r, sigma, option_type) - market_price,
             1e-6, 10.0), 4)
-    except:
+    except Exception:
         return None
 
 
 def get_stock_data(ticker):
     end = (datetime.today() - timedelta(days=2)).strftime('%Y-%m-%d')
     start = (datetime.today() - timedelta(days=90)).strftime('%Y-%m-%d')
-    url = f"https://api.polygon.io/v2/aggs/ticker/{ticker}/range/1/day/{start}/{end}?adjusted=true&sort=asc&limit=90&apiKey={API_KEY}"
+    url = (
+        f"https://api.polygon.io/v2/aggs/ticker/{ticker}/range/1/day/{start}/{end}"
+        f"?adjusted=true&sort=asc&limit=90&apiKey={API_KEY}"
+    )
     r = requests.get(url)
     data = r.json()
     results = data.get('results', [])
@@ -68,7 +78,10 @@ def get_option_price(ticker, strike, expiry, option_type='call'):
     option_ticker = f"O:{ticker}{exp}{side}{strike_fmt}"
     end = (datetime.today() - timedelta(days=2)).strftime('%Y-%m-%d')
     start = (datetime.today() - timedelta(days=30)).strftime('%Y-%m-%d')
-    url = f"https://api.polygon.io/v2/aggs/ticker/{option_ticker}/range/1/day/{start}/{end}?adjusted=true&sort=desc&limit=5&apiKey={API_KEY}"
+    url = (
+        f"https://api.polygon.io/v2/aggs/ticker/{option_ticker}/range/1/day/{start}/{end}"
+        f"?adjusted=true&sort=desc&limit=5&apiKey={API_KEY}"
+    )
     r = requests.get(url)
     data = r.json()
     results = data.get('results', [])
@@ -80,7 +93,7 @@ def get_option_price(ticker, strike, expiry, option_type='call'):
 def vol_surface(S, T, r, hv, strike, option_type='call'):
     offsets = [-20, -10, 0, 10, 20]
     strikes = [strike + o for o in offsets]
-    print(f"\n--- Vol Surface (BS Theo across strikes) ---")
+    print("\n--- Vol Surface (BS Theo across strikes) ---")
     print(f"{'Strike':<10} {'Theo':>8} {'Delta':>8} {'Vega':>8}")
     print("-" * 38)
     for k in strikes:
@@ -92,12 +105,12 @@ def vol_surface(S, T, r, hv, strike, option_type='call'):
 
 def scenario_analysis(S, K, T, r, hv, market_price, option_type='call'):
     moves = [-0.15, -0.10, -0.05, 0, 0.05, 0.10, 0.15]
-    print(f"\n--- Scenario Analysis (P&L if stock moves) ---")
+    print("\n--- Scenario Analysis (P&L if stock moves) ---")
     print(f"{'Move':<8} {'New Price':>10} {'Option Val':>12} {'P&L':>10}")
     print("-" * 44)
     for m in moves:
         new_S = S * (1 + m)
-        new_val = black_scholes(new_S, K, T - 1/52, r, hv, option_type)  # 1 week later
+        new_val = black_scholes(new_S, K, T - 1/52, r, hv, option_type)
         pnl = new_val - market_price
         marker = " <-- current" if m == 0 else ""
         print(f"{m:>+6.0%}   ${new_S:>9.2f}   ${new_val:>10.2f}   ${pnl:>+9.2f}{marker}")
@@ -114,22 +127,22 @@ def analyze_option(ticker, strike, expiry, option_type='call', r=0.05):
 
     T = (datetime.strptime(expiry, '%Y-%m-%d') - datetime.today()).days / 365
     if T <= 0:
-        print("Expiry has passed — choose a future date.")
+        print("Expiry has passed -- choose a future date.")
         return
 
     market_price, option_ticker = get_option_price(ticker, strike, expiry, option_type)
 
     if market_price is None:
-        print(f"\nCould not fetch market price automatically.")
+        print("\nCould not fetch market price automatically.")
         manual = input("Enter market price manually (or press Enter to skip): ").strip()
         market_price = float(manual) if manual else None
 
     theo = black_scholes(S, strike, T, r, hv, option_type)
     g = greeks(S, strike, T, r, hv, option_type)
 
-    print(f"\n{'='*50}")
+    print(f"\n{'=' * 50}")
     print(f"Option: {ticker} {expiry} ${strike} {option_type.upper()}")
-    print(f"{'='*50}")
+    print(f"{'=' * 50}")
     print(f"BS Theo (HV={hv:.1%}): ${theo:.2f}")
 
     if market_price:
@@ -139,12 +152,12 @@ def analyze_option(ticker, strike, expiry, option_type='call', r=0.05):
         print(f"Implied Vol:        {iv:.1%}" if iv else "Implied Vol:        N/A")
         print(f"Historical Vol:     {hv:.1%}")
 
-    print(f"\nGreeks:")
+    print("\nGreeks:")
     for k, v in g.items():
         print(f"  {k}: {v}")
 
     if market_price:
-        print(f"\n{'='*50}")
+        print(f"\n{'=' * 50}")
         if market_price < theo * 0.97:
             print(f"SIGNAL: BUY  -- option is CHEAP by ${abs(edge):.2f}")
             if iv:
@@ -154,15 +167,13 @@ def analyze_option(ticker, strike, expiry, option_type='call', r=0.05):
             if iv:
                 print(f"  IV ({iv:.1%}) > HV ({hv:.1%}) -- vol appears overpriced")
         else:
-            print(f"SIGNAL: HOLD -- option is fairly priced")
-        print(f"{'='*50}")
+            print("SIGNAL: HOLD -- option is fairly priced")
+        print(f"{'=' * 50}")
 
-        # Scenario analysis
         scenario_analysis(S, strike, T, r, hv, market_price, option_type)
     else:
         print(f"\nSIGNAL: N/A -- no market price provided, BS theo = ${theo:.2f}")
 
-    # Vol surface
     vol_surface(S, T, r, hv, strike, option_type)
     print()
 
